@@ -60,17 +60,96 @@ def safe_json(r):
     except Exception:
         return {}
 
+# ===== SETUP WIZARD =====
+def setup_wizard():
+    console.print(Panel(
+        "[bold cyan]Selamat datang di MoltArena Auto Battle Bot![/bold cyan]\n\n"
+        "File [yellow]accounts.json[/yellow] belum ditemukan.\n"
+        "Mari setup akun kamu sekarang.",
+        title="[bold yellow]⚙️  SETUP WIZARD[/bold yellow]",
+        border_style="cyan",
+        box=box.DOUBLE_EDGE,
+        padding=(1, 4),
+    ))
+
+    accounts = []
+
+    try:
+        while True:
+            jumlah = console.input("\n[bold cyan]Mau setup berapa akun?[/bold cyan] (contoh: 2): ").strip()
+            if jumlah.isdigit() and int(jumlah) > 0:
+                jumlah = int(jumlah)
+                break
+            console.print("[red]Input tidak valid. Masukkan angka > 0.[/red]")
+
+        console.print(f"\n[green]Oke, setup {jumlah} akun.[/green]")
+        console.print("[dim]API key bisa didapat di: https://moltarena.crosstoken.io/settings/api[/dim]\n")
+
+        for i in range(1, jumlah + 1):
+            console.rule(f"[yellow]Akun #{i}[/yellow]")
+
+            while True:
+                name = console.input(f"[bold cyan]Nama akun #{i}[/bold cyan] (contoh: MainAccount): ").strip()
+                if name:
+                    break
+                console.print("[red]Nama tidak boleh kosong.[/red]")
+
+            while True:
+                api_key = console.input(f"[bold cyan]API Key #{i}[/bold cyan] (pk_live_...): ").strip()
+                if api_key.startswith("pk_"):
+                    break
+                console.print("[red]API key harus diawali pk_live_ atau pk_test_[/red]")
+
+            agent_name = console.input(
+                f"[bold cyan]Nama agen #{i}[/bold cyan] [dim](kosongkan = auto pilih agen pertama)[/dim]: "
+            ).strip() or None
+
+            accounts.append({
+                "name": name,
+                "apiKey": api_key,
+                "agentId": None,
+                "agentName": agent_name,
+                "battleId": None
+            })
+            log_ok(f"Akun [bold]{name}[/bold] berhasil ditambahkan!")
+
+        console.print()
+        console.print(Panel(
+            "\n".join([
+                f"[bold]{i+1}.[/bold] [cyan]{a['name']}[/cyan]  [dim]{a['apiKey'][:20]}...[/dim]"
+                + (f"  | Agen: [yellow]{a['agentName']}[/yellow]" if a['agentName'] else "  | Agen: [dim]auto[/dim]")
+                for i, a in enumerate(accounts)
+            ]),
+            title="[bold]📋 Ringkasan Akun[/bold]",
+            border_style="green",
+            box=box.ROUNDED,
+            padding=(1, 3),
+        ))
+
+        confirm = console.input("\n[bold]Simpan dan mulai bot? (y/n):[/bold] ").strip().lower()
+        if confirm != "y":
+            console.print("[yellow]Setup dibatalkan.[/yellow]")
+            sys.exit(0)
+
+        with open(ACCOUNTS_FILE, "w") as f:
+            json.dump(accounts, f, indent=2)
+
+        log_ok(f"accounts.json disimpan! ({len(accounts)} akun)")
+        console.print()
+        return accounts
+
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Setup dibatalkan.[/yellow]")
+        sys.exit(0)
+
 # ===== BANNER =====
 def print_banner(accounts):
-    content = (
+    console.print(Panel(
         f"[bold cyan]Akun[/bold cyan]    : [white]{len(accounts)}[/white]\n"
         f"[bold cyan]Interval[/bold cyan]: [white]{BATTLE_INTERVAL}s[/white]  "
         f"[bold cyan]Ronde[/bold cyan]: [white]{ROUNDS}[/white]\n"
         f"[bold cyan]Mode[/bold cyan]    : [white]{'Challenge' if CHALLENGE_MODE else 'Auto Match'}[/white]  "
-        f"[bold cyan]Debug[/bold cyan]: [white]{'ON' if DEBUG else 'OFF'}[/white]"
-    )
-    console.print(Panel(
-        content,
+        f"[bold cyan]Debug[/bold cyan]: [white]{'ON' if DEBUG else 'OFF'}[/white]",
         title="[bold yellow]⚔️  MOLTARENA AUTO BATTLE BOT[/bold yellow]",
         border_style="yellow",
         box=box.DOUBLE_EDGE,
@@ -80,9 +159,7 @@ def print_banner(accounts):
 # ===== ACCOUNTS =====
 def load_accounts():
     if not os.path.exists(ACCOUNTS_FILE):
-        log_err(f"File {ACCOUNTS_FILE} tidak ditemukan!")
-        log("    Buat dari template: cp accounts.example.json accounts.json")
-        sys.exit(1)
+        return setup_wizard()
     with open(ACCOUNTS_FILE) as f:
         data = json.load(f)
     for acc in data:
@@ -182,7 +259,6 @@ def display_agent_info(agent):
     losses = agent.get("losses", 0)
     total = wins + losses
     wr = round(wins / total * 100) if total > 0 else 0
-
     table = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
     table.add_column(style="bold cyan", min_width=12)
     table.add_column(style="white")
@@ -224,10 +300,10 @@ def display_battle_result(battle_data, agent_name):
 
 def display_cycle_summary(cycle, ok, fail):
     table = Table(box=box.SIMPLE_HEAD, show_header=True, padding=(0, 3))
-    table.add_column("Siklus", style="bold yellow")
+    table.add_column("Siklus",   style="bold yellow")
     table.add_column("Berhasil", style="bold green")
-    table.add_column("Gagal", style="bold red")
-    table.add_column("Waktu", style="dim")
+    table.add_column("Gagal",    style="bold red")
+    table.add_column("Waktu",    style="dim")
     table.add_row(f"#{cycle}", str(ok), str(fail), datetime.now().strftime("%H:%M:%S"))
     console.print(table)
 
@@ -238,12 +314,7 @@ def handle_notifications(accounts):
         for event in events:
             etype = event.get("type", "")
             msg = event.get("message", "")
-            icons = {
-                "battle_complete": "🔔",
-                "top100": "🎉",
-                "rank_change": "📈",
-                "challenge": "⚔️",
-            }
+            icons = {"battle_complete": "🔔", "top100": "🎉", "rank_change": "📈", "challenge": "⚔️"}
             log(f"{icons.get(etype, '📌')} [bold][{acc['name']}][/bold] {etype}: {msg}")
 
 # ===== BATTLE LOOP =====
@@ -279,12 +350,10 @@ def run_battle_for_account(acc):
         transient=True,
     ) as progress:
         task = progress.add_task("[cyan]Menunggu hasil battle...", total=None)
-
         waited = 0
         while waited < MAX_WAIT_BATTLE:
             time.sleep(POLL_INTERVAL)
             waited += POLL_INTERVAL
-
             battle_data = get_battle_status(battle_id, acc)
             status = str(battle_data.get("status", "")).lower()
             progress.update(task, description=f"[cyan]Menunggu... status: {status or 'running'} ({waited}s)")
